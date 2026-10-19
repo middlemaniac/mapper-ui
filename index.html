@@ -21,6 +21,11 @@
   <input id="mapping-file" type="file" accept=".json,application/json" hidden>
 
   <main class="app-shell">
+    <div class="integration-context" id="integration-context" hidden>
+      <a href="../canonical-ui/index.html" class="context-back" aria-label="Back to integration registry">← Registry</a>
+      <span class="context-divider" aria-hidden="true"></span>
+      <div class="context-copy"><span id="integration-context-label">INTEGRATION MAPPING</span><strong id="integration-context-name"></strong><span id="integration-context-flow"></span></div>
+    </div>
     <section class="mapping-layout" id="mapping-layout" aria-label="Data mapping workbench">
       <svg class="connector-layer" id="connector-layer" aria-hidden="true"></svg>
       <section class="schema-panel source-panel" aria-labelledby="source-title">

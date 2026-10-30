@@ -74,12 +74,6 @@ const ui = {
   mappingFile: document.querySelector("#mapping-file")
 };
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  })[character]);
-}
-
 function flattenFields(schema, parentPath = schema.root, result = []) {
   for (const field of schema.fields) {
     const path = `${parentPath}.${field.name}`;
@@ -106,45 +100,67 @@ function renderTree(schema, side, search = "") {
     side === "source" ? mappingSourcePaths(item) : [item.targetPath]
   ));
   const query = search.trim().toLowerCase();
-  let leafCount = 0;
+  const groupTemplate = document.querySelector("#tree-group-template");
+  const fieldTemplate = document.querySelector("#tree-field-template");
+  const messageTemplate = document.querySelector("#tree-message-template");
   function renderFields(fields, parentPath) {
-    return fields.map((field) => {
+    const fragment = document.createDocumentFragment();
+    let hasVisibleFields = false;
+    let leafCount = 0;
+    for (const field of fields) {
       const path = `${parentPath}.${field.name}`;
       const isObject = Array.isArray(field.children) && field.children.length > 0;
-      const childrenHtml = isObject ? renderFields(field.children, path) : "";
+      const children = isObject ? renderFields(field.children, path) : null;
       const ownMatch = `${field.name} ${path} ${field.type}`.toLowerCase().includes(query);
-      const hasMatchingChild = isObject && childrenHtml.includes("data-field-path=");
-      if (query && !ownMatch && !hasMatchingChild) return "";
+      if (query && !ownMatch && (!children || !children.hasVisibleFields)) continue;
       if (isObject) {
-        return `<div data-group-path="${escapeHtml(path)}">
-          <button class="btn btn-sm btn-light w-100 text-start d-flex align-items-center gap-2" data-ui="tree-group-label" type="button" aria-expanded="true">
-            <span class="text-body-secondary" aria-hidden="true">⌄</span><span class="font-monospace text-body-secondary" aria-hidden="true">{ }</span>
-            <span>${escapeHtml(field.name)}</span><span class="font-monospace small text-body-secondary ms-auto">${escapeHtml(field.type)}</span>
-          </button><div class="ps-3">${childrenHtml}</div>
-        </div>`;
+        const group = groupTemplate.content.firstElementChild.cloneNode(true);
+        group.dataset.groupPath = path;
+        group.querySelector("[data-group-name]").textContent = field.name;
+        group.querySelector("[data-group-type]").textContent = field.type;
+        group.querySelector("[data-group-children]").append(children.fragment);
+        fragment.append(group);
+        leafCount += children.leafCount;
+        hasVisibleFields = true;
+        continue;
       }
       leafCount += 1;
       const isSelected = side === "source" && state.selectedSource === path;
       const pathWithoutRoot = path.slice(schema.root.length + 1);
-      return `<button class="list-group-item list-group-item-action py-1 px-2 d-flex align-items-center gap-2${isSelected ? " active" : ""}"
-          data-ui="tree-field" type="button" draggable="${side === "source"}" data-side="${side}" data-path="${escapeHtml(path)}"
-          data-field-path="${escapeHtml(`${side}:${path}`)}" aria-pressed="${isSelected}"
-          aria-label="${escapeHtml(pathWithoutRoot)}, ${escapeHtml(field.type)}${mapped.has(path) ? ", mapped" : ""}">
-        <span class="font-monospace small text-body-secondary" aria-hidden="true">${escapeHtml(typeGlyph(field.type))}</span>
-        <span class="small text-truncate">${escapeHtml(field.name)}</span>
-        ${mapped.has(path) ? '<span class="text-success ms-auto" aria-hidden="true">✓</span>' : ""}
-      </button>`;
-    }).join("");
+      const button = fieldTemplate.content.firstElementChild.cloneNode(true);
+      button.classList.toggle("active", isSelected);
+      button.draggable = side === "source";
+      button.dataset.side = side;
+      button.dataset.path = path;
+      button.dataset.fieldPath = `${side}:${path}`;
+      button.setAttribute("aria-pressed", String(isSelected));
+      button.setAttribute("aria-label", `${pathWithoutRoot}, ${field.type}${mapped.has(path) ? ", mapped" : ""}`);
+      button.querySelector("[data-field-glyph]").textContent = typeGlyph(field.type);
+      button.querySelector("[data-field-name]").textContent = field.name;
+      button.querySelector("[data-field-mapped]").hidden = !mapped.has(path);
+      fragment.append(button);
+      hasVisibleFields = true;
+    }
+    return { fragment, hasVisibleFields, leafCount };
   }
-  const html = renderFields(schema.fields, schema.root);
+  const rendered = renderFields(schema.fields, schema.root);
   const tree = side === "source" ? ui.sourceTree : ui.targetTree;
-  tree.innerHTML = html || (schema.fields.length
-    ? `<div class="text-center text-body-secondary small p-3">No fields match your search.</div>`
-    : `<div class="text-center text-body-secondary small p-3">
-        <span>No ${side} schema loaded yet.</span>
-        <button class="btn btn-sm btn-outline-success d-block mx-auto mt-2" type="button" data-import-side="${side}">Import ${side} schema</button>
-      </div>`);
-  document.querySelector(`#${side}-field-count`).textContent = `${leafCount} fields`;
+  if (rendered.hasVisibleFields) tree.replaceChildren(rendered.fragment);
+  else {
+    const message = messageTemplate.content.firstElementChild.cloneNode(true);
+    const text = message.querySelector("[data-tree-message]");
+    const importButton = message.querySelector("[data-import-side]");
+    if (schema.fields.length) {
+      text.textContent = "No fields match your search.";
+      importButton.remove();
+    } else {
+      text.textContent = `No ${side} schema loaded yet.`;
+      importButton.dataset.importSide = side;
+      importButton.textContent = `Import ${side} schema`;
+    }
+    tree.replaceChildren(message);
+  }
+  document.querySelector(`#${side}-field-count`).textContent = `${rendered.leafCount} fields`;
 }
 
 function updateHint(message) {
@@ -163,22 +179,29 @@ function updateHint(message) {
 function renderMappings() {
   const sourceFields = fieldMap(state.source);
   const targetFields = fieldMap(state.target);
-  ui.list.innerHTML = state.mappings.map((mapping) => {
+  const rowTemplate = document.querySelector("#mapping-row-template");
+  const rows = document.createDocumentFragment();
+  for (const mapping of state.mappings) {
     const sources = mappingSourcePaths(mapping).map((path) => sourceFields.get(path));
     const target = targetFields.get(mapping.targetPath);
-    if (sources.some((source) => !source) || !target) return "";
+    if (sources.some((source) => !source) || !target) continue;
     const sourceNames = sources.map((source) => source.name);
     const sourcePath = mappingSourcePaths(mapping).map((path) => path.slice(state.source.root.length + 1)).join(" + ");
     const targetPath = mapping.targetPath.slice(state.target.root.length + 1);
-    return `<article class="list-group-item${state.selectedMapping === mapping.id ? " active" : ""}" data-mapping-id="${escapeHtml(mapping.id)}">
-      <div class="row align-items-center g-2">
-        <div class="col"><span class="d-block small text-truncate fw-semibold">${escapeHtml(sourceNames.join(" + "))}</span><span class="d-block small font-monospace text-body-secondary">${escapeHtml(sourcePath)}</span></div>
-        <span class="col-auto text-body-secondary" aria-hidden="true">→</span>
-        <div class="col"><span class="d-block small text-truncate fw-semibold">${escapeHtml(target.name)}</span><span class="d-block small font-monospace text-body-secondary">${escapeHtml(targetPath)}</span></div>
-        <div class="col-auto"><button class="btn btn-sm btn-outline-secondary p-1" type="button" data-remove-id="${escapeHtml(mapping.id)}" aria-label="Remove mapping from ${escapeHtml(sourceNames.join(" and "))} to ${escapeHtml(target.name)}" title="Remove mapping"><svg width="16" height="16" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
-      </div>
-    </article>`;
-  }).join("");
+    const row = rowTemplate.content.firstElementChild.cloneNode(true);
+    row.classList.toggle("active", state.selectedMapping === mapping.id);
+    row.dataset.mappingId = mapping.id;
+    row.querySelector("[data-source-name]").textContent = sourceNames.join(" + ");
+    row.querySelector("[data-source-path]").textContent = sourcePath;
+    row.querySelector("[data-target-name]").textContent = target.name;
+    row.querySelector("[data-target-path]").textContent = targetPath;
+    const removeButton = row.querySelector("[data-remove-id]");
+    removeButton.dataset.removeId = mapping.id;
+    removeButton.setAttribute("aria-label", `Remove mapping from ${sourceNames.join(" and ")} to ${target.name}`);
+    removeButton.querySelector("[data-remove-label]").textContent = `Remove mapping from ${sourceNames.join(" and ")} to ${target.name}`;
+    rows.append(row);
+  }
+  ui.list.replaceChildren(rows);
   ui.count.textContent = String(state.mappings.length);
   document.querySelector("#mapping-columns").hidden = !state.mappings.length;
   const hasSchemas = state.source.fields.length > 0 && state.target.fields.length > 0;
@@ -188,12 +211,9 @@ function renderMappings() {
   emptyState.hidden = state.mappings.length > 0;
   document.querySelector("#mapping-columns").hidden = !state.mappings.length;
   if (!state.mappings.length) {
-    emptyState.innerHTML = `<div class="d-flex align-items-center justify-content-center gap-4 mb-3 text-body-tertiary" aria-hidden="true"><span class="border rounded p-2">{ }</span><span>····→····</span><span class="border rounded p-2">{ }</span></div>
-      <strong class="d-block text-body-secondary">No mappings loaded</strong>
-      <p class="small text-body-secondary mx-auto my-2">${hasSchemas
-        ? "Import a mapping file, or connect fields by selecting a source and target."
-        : "Import source and target schemas first so mapping field paths can be checked."}</p>
-      <button class="btn btn-sm btn-success mt-2" id="empty-load-mapping" type="button">Import mapping</button>`;
+    emptyState.querySelector("#empty-state-copy").textContent = hasSchemas
+      ? "Import a mapping file, or connect fields by selecting a source and target."
+      : "Import source and target schemas first so mapping field paths can be checked.";
   }
   ui.summary.textContent = state.mappings.length
     ? `${state.mappings.length} field${state.mappings.length === 1 ? "" : "s"} connected`
@@ -207,14 +227,14 @@ function renderMappings() {
 function drawConnectors() {
   if (!ui.layout.getBoundingClientRect().width || window.matchMedia("(max-width: 767.98px)").matches) {
     ui.connectors.classList.add("d-none");
-    ui.connectors.replaceChildren();
+    ui.connectors.querySelectorAll("[data-connector-path]").forEach((path) => path.remove());
     return;
   }
   ui.connectors.classList.remove("d-none");
   const rect = ui.connectors.getBoundingClientRect();
   ui.connectors.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
   ui.connectors.setAttribute("preserveAspectRatio", "none");
-  const paths = ['<defs><marker id="connector-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#8cab94"/></marker><marker id="connector-arrow-selected" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#ca7958"/></marker></defs>'];
+  ui.connectors.querySelectorAll("[data-connector-path]").forEach((path) => path.remove());
   for (const mapping of state.mappings) {
     const target = ui.targetTree.querySelector(`[data-field-path="${CSS.escape(`target:${mapping.targetPath}`)}"]`);
     if (!target) continue;
@@ -227,10 +247,17 @@ function drawConnectors() {
       const a = source.getBoundingClientRect();
       const sx = a.right - rect.left - 1, sy = a.top + a.height / 2 - rect.top;
       const bend = Math.max(32, (tx - sx) * 0.42);
-      paths.push(`<path d="M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}" fill="none" stroke="${selected ? "#ca7958" : "#8cab94"}" stroke-width="${selected ? "2" : "1.5"}" opacity="${selected ? ".95" : ".72"}" marker-end="url(#connector-arrow${selected ? "-selected" : ""})"/>`);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.dataset.connectorPath = "true";
+      path.setAttribute("d", `M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}`);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", selected ? "#ca7958" : "#8cab94");
+      path.setAttribute("stroke-width", selected ? "2" : "1.5");
+      path.setAttribute("opacity", selected ? ".95" : ".72");
+      path.setAttribute("marker-end", `url(#connector-arrow${selected ? "-selected" : ""})`);
+      ui.connectors.append(path);
     }
   }
-  ui.connectors.innerHTML = paths.join("");
 }
 
 function renderAll() {

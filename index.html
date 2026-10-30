@@ -15,7 +15,12 @@
 
   <main class="container-fluid px-3 px-xl-5 py-3">
     <section class="row g-3 position-relative" id="mapping-layout" aria-label="Data mapping workbench">
-      <svg class="position-absolute top-0 start-0 w-100 h-100 z-3 d-none" id="connector-layer" aria-hidden="true" pointer-events="none"></svg>
+      <svg class="position-absolute top-0 start-0 w-100 h-100 z-3 d-none" id="connector-layer" aria-hidden="true" pointer-events="none">
+        <defs>
+          <marker id="connector-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#8cab94"/></marker>
+          <marker id="connector-arrow-selected" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#ca7958"/></marker>
+        </defs>
+      </svg>
       <section class="col-12 col-md-6 order-1" aria-labelledby="source-title">
         <div class="card shadow-sm h-100">
           <div class="card-header bg-white d-flex align-items-center justify-content-between gap-2">
@@ -54,7 +59,7 @@
             <div class="list-group overflow-auto" id="mapping-list"></div>
             <div class="text-center py-4" id="empty-state">
               <div class="d-flex align-items-center justify-content-center gap-4 mb-3 text-body-tertiary" aria-hidden="true"><span class="border rounded p-2">{ }</span><span>····→····</span><span class="border rounded p-2">{ }</span></div>
-              <strong class="d-block text-body-secondary">No mappings loaded</strong><p class="small text-body-secondary mx-auto my-2">Import source and target schemas first so mapping field paths can be checked.</p>
+              <strong class="d-block text-body-secondary">No mappings loaded</strong><p class="small text-body-secondary mx-auto my-2" id="empty-state-copy">Import source and target schemas first so mapping field paths can be checked.</p>
               <button class="btn btn-sm btn-success mt-2" id="empty-load-mapping" type="button">Import mapping</button>
             </div>
             <div class="d-flex align-items-center gap-2 border-top pt-2 mt-2 small text-body-secondary" id="mapping-hint" aria-live="polite"><span class="text-warning" aria-hidden="true">✳</span><span>Select a source field to get started</span><kbd class="ms-auto">Esc</kbd></div>
@@ -111,5 +116,35 @@
       </div>
     </section>
   </div>
+  <template id="tree-group-template">
+    <div>
+      <button class="btn btn-sm btn-light w-100 text-start d-flex align-items-center gap-2" data-ui="tree-group-label" type="button" aria-expanded="true">
+        <span class="text-body-secondary" data-group-chevron aria-hidden="true">⌄</span><span class="font-monospace text-body-secondary" aria-hidden="true">{ }</span>
+        <span data-group-name></span><span class="font-monospace small text-body-secondary ms-auto" data-group-type></span>
+      </button><div class="ps-3" data-group-children></div>
+    </div>
+  </template>
+  <template id="tree-field-template">
+    <button class="list-group-item list-group-item-action py-1 px-2 d-flex align-items-center gap-2" data-ui="tree-field" type="button">
+      <span class="font-monospace small text-body-secondary" data-field-glyph aria-hidden="true"></span>
+      <span class="small text-truncate" data-field-name></span>
+      <span class="text-success ms-auto" data-field-mapped aria-hidden="true" hidden>✓</span>
+    </button>
+  </template>
+  <template id="tree-message-template">
+    <div class="text-center text-body-secondary small p-3"><span data-tree-message></span>
+      <button class="btn btn-sm btn-outline-success d-block mx-auto mt-2" type="button" data-import-side></button>
+    </div>
+  </template>
+  <template id="mapping-row-template">
+    <article class="list-group-item" data-mapping-id>
+      <div class="row align-items-center g-2">
+        <div class="col"><span class="d-block small text-truncate fw-semibold" data-source-name></span><span class="d-block small font-monospace text-body-secondary" data-source-path></span></div>
+        <span class="col-auto text-body-secondary" aria-hidden="true">→</span>
+        <div class="col"><span class="d-block small text-truncate fw-semibold" data-target-name></span><span class="d-block small font-monospace text-body-secondary" data-target-path></span></div>
+        <div class="col-auto"><button class="btn btn-sm btn-outline-secondary p-1" type="button" data-remove-id title="Remove mapping"><span class="visually-hidden" data-remove-label></span><svg width="16" height="16" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
+      </div>
+    </article>
+  </template>
 </body>
 </html>

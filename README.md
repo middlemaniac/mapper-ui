@@ -20,43 +20,20 @@ MM Mapper is a lightweight browser-based field mapping tool for comparing a sour
 - Sample customer migration data built in for quick testing
 - Mapping export that works in modern browsers with download support
 
-## Quick start
-
-Because this project is a static web app, there is no build step or dependency install required.
-
-1. Open a terminal in the project root.
-2. Start a local web server:
-
-   ```bash
-   python3 -m http.server 8000
-   ```
-
-3. Open the app in your browser:
-
-   ```text
-   http://localhost:8000
-   ```
-
-4. Use the interface to import source and target schemas, or click the sample data button to load a demo dataset.
-
-> Note: the app files in this repository are `index.html`, `index.css`, and `index.js`. If you rename or substitute the JavaScript file, keep the script tag in `index.html` aligned with the actual file name.
-
 ## Project structure
 
 ```text
 .
 ├── LICENSE
 ├── README.md
-├── index.css
 ├── index.html
-├── index.js
-└── .git/
+└── index.js
+
 ```
 
 ### File overview
 
 - `index.html` — application layout and UI elements
-- `index.css` — styling for the mapping workspace
 - `index.js` — schema parsing, import/export logic, drag-and-drop mapping, and browser persistence
 - `LICENSE` — project licensing information
 

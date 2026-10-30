@@ -45,6 +45,8 @@ const state = {
   toastDeadline: 0,
   toastRemaining: 2800,
   toastPaused: false,
+  confirmationResolver: null,
+  overlayReturnFocus: null,
   skipNextWorkspaceSave: false,
   storageWarningShown: false,
   restoreError: ""
@@ -60,6 +62,11 @@ const ui = {
   hint: document.querySelector("#mapping-hint"),
   status: document.querySelector("#footer-status-text"),
   toast: document.querySelector("#toast"),
+  toastMessage: document.querySelector("#toast-message"),
+  overlay: document.querySelector("#dialog-overlay"),
+  exportDialog: document.querySelector("#mapping-export-dialog"),
+  confirmationDialog: document.querySelector("#confirmation-dialog"),
+  confirmationMessage: document.querySelector("#confirmation-message"),
   sourceSearch: document.querySelector("#source-search"),
   targetSearch: document.querySelector("#target-search"),
   sourceSchemaFile: document.querySelector("#source-schema-file"),
@@ -109,33 +116,33 @@ function renderTree(schema, side, search = "") {
       const hasMatchingChild = isObject && childrenHtml.includes("data-field-path=");
       if (query && !ownMatch && !hasMatchingChild) return "";
       if (isObject) {
-        return `<div class="tree-group" data-group-path="${escapeHtml(path)}">
-          <button class="tree-group-label" type="button" aria-expanded="true">
-            <span class="tree-chevron" aria-hidden="true">⌄</span><span class="object-icon" aria-hidden="true">{ }</span>
-            <span>${escapeHtml(field.name)}</span><span class="field-type">${escapeHtml(field.type)}</span>
-          </button><div class="tree-children">${childrenHtml}</div>
+        return `<div data-group-path="${escapeHtml(path)}">
+          <button class="btn btn-sm btn-light w-100 text-start d-flex align-items-center gap-2" data-ui="tree-group-label" type="button" aria-expanded="true">
+            <span class="text-body-secondary" aria-hidden="true">⌄</span><span class="font-monospace text-body-secondary" aria-hidden="true">{ }</span>
+            <span>${escapeHtml(field.name)}</span><span class="font-monospace small text-body-secondary ms-auto">${escapeHtml(field.type)}</span>
+          </button><div class="ps-3">${childrenHtml}</div>
         </div>`;
       }
       leafCount += 1;
       const isSelected = side === "source" && state.selectedSource === path;
       const pathWithoutRoot = path.slice(schema.root.length + 1);
-      return `<button class="tree-field${mapped.has(path) ? " is-mapped" : ""}${isSelected ? " is-selected" : ""}"
-          type="button" draggable="${side === "source"}" data-side="${side}" data-path="${escapeHtml(path)}"
+      return `<button class="list-group-item list-group-item-action py-1 px-2 d-flex align-items-center gap-2${isSelected ? " active" : ""}"
+          data-ui="tree-field" type="button" draggable="${side === "source"}" data-side="${side}" data-path="${escapeHtml(path)}"
           data-field-path="${escapeHtml(`${side}:${path}`)}" aria-pressed="${isSelected}"
           aria-label="${escapeHtml(pathWithoutRoot)}, ${escapeHtml(field.type)}${mapped.has(path) ? ", mapped" : ""}">
-        <span class="field-type" aria-hidden="true">${escapeHtml(typeGlyph(field.type))}</span>
-        <span class="field-name">${escapeHtml(field.name)}</span>
-        <span class="field-tail"><span class="mapped-check" aria-hidden="true">✓</span></span>
+        <span class="font-monospace small text-body-secondary" aria-hidden="true">${escapeHtml(typeGlyph(field.type))}</span>
+        <span class="small text-truncate">${escapeHtml(field.name)}</span>
+        ${mapped.has(path) ? '<span class="text-success ms-auto" aria-hidden="true">✓</span>' : ""}
       </button>`;
     }).join("");
   }
   const html = renderFields(schema.fields, schema.root);
   const tree = side === "source" ? ui.sourceTree : ui.targetTree;
   tree.innerHTML = html || (schema.fields.length
-    ? `<div class="tree-empty">No fields match your search.</div>`
-    : `<div class="tree-empty schema-empty">
+    ? `<div class="text-center text-body-secondary small p-3">No fields match your search.</div>`
+    : `<div class="text-center text-body-secondary small p-3">
         <span>No ${side} schema loaded yet.</span>
-        <button class="schema-empty-action" type="button" data-import-side="${side}">Import ${side} schema</button>
+        <button class="btn btn-sm btn-outline-success d-block mx-auto mt-2" type="button" data-import-side="${side}">Import ${side} schema</button>
       </div>`);
   document.querySelector(`#${side}-field-count`).textContent = `${leafCount} fields`;
 }
@@ -163,11 +170,13 @@ function renderMappings() {
     const sourceNames = sources.map((source) => source.name);
     const sourcePath = mappingSourcePaths(mapping).map((path) => path.slice(state.source.root.length + 1)).join(" + ");
     const targetPath = mapping.targetPath.slice(state.target.root.length + 1);
-    return `<article class="mapping-card${state.selectedMapping === mapping.id ? " is-selected" : ""}" data-mapping-id="${escapeHtml(mapping.id)}">
-      <div class="mapping-endpoint"><span class="mapping-field-name">${escapeHtml(sourceNames.join(" + "))}</span><span class="mapping-field-path">${escapeHtml(sourcePath)}</span></div>
-      <span class="mapping-arrow" aria-hidden="true">→</span>
-      <div class="mapping-endpoint"><span class="mapping-field-name">${escapeHtml(target.name)}</span><span class="mapping-field-path">${escapeHtml(targetPath)}</span></div>
-      <button class="remove-mapping" type="button" data-remove-id="${escapeHtml(mapping.id)}" aria-label="Remove mapping from ${escapeHtml(sourceNames.join(" and "))} to ${escapeHtml(target.name)}" title="Remove mapping"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
+    return `<article class="list-group-item${state.selectedMapping === mapping.id ? " active" : ""}" data-mapping-id="${escapeHtml(mapping.id)}">
+      <div class="row align-items-center g-2">
+        <div class="col"><span class="d-block small text-truncate fw-semibold">${escapeHtml(sourceNames.join(" + "))}</span><span class="d-block small font-monospace text-body-secondary">${escapeHtml(sourcePath)}</span></div>
+        <span class="col-auto text-body-secondary" aria-hidden="true">→</span>
+        <div class="col"><span class="d-block small text-truncate fw-semibold">${escapeHtml(target.name)}</span><span class="d-block small font-monospace text-body-secondary">${escapeHtml(targetPath)}</span></div>
+        <div class="col-auto"><button class="btn btn-sm btn-outline-secondary p-1" type="button" data-remove-id="${escapeHtml(mapping.id)}" aria-label="Remove mapping from ${escapeHtml(sourceNames.join(" and "))} to ${escapeHtml(target.name)}" title="Remove mapping"><svg width="16" height="16" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
+      </div>
     </article>`;
   }).join("");
   ui.count.textContent = String(state.mappings.length);
@@ -176,15 +185,15 @@ function renderMappings() {
   document.querySelector("#clear-mappings").disabled = !state.mappings.length;
   document.querySelector("#export-mappings-button").disabled = !state.mappings.length;
   const emptyState = document.querySelector("#empty-state");
+  emptyState.hidden = state.mappings.length > 0;
+  document.querySelector("#mapping-columns").hidden = !state.mappings.length;
   if (!state.mappings.length) {
-    emptyState.innerHTML = `<div class="empty-art" aria-hidden="true"><span class="empty-source"></span><span class="empty-path"></span><span class="empty-target"></span></div>
-      <strong>No mappings loaded</strong>
-      <p>${hasSchemas
+    emptyState.innerHTML = `<div class="d-flex align-items-center justify-content-center gap-4 mb-3 text-body-tertiary" aria-hidden="true"><span class="border rounded p-2">{ }</span><span>····→····</span><span class="border rounded p-2">{ }</span></div>
+      <strong class="d-block text-body-secondary">No mappings loaded</strong>
+      <p class="small text-body-secondary mx-auto my-2">${hasSchemas
         ? "Import a mapping file, or connect fields by selecting a source and target."
         : "Import source and target schemas first so mapping field paths can be checked."}</p>
-      <div class="empty-state-actions">
-        <button class="button button-primary" id="empty-load-mapping" type="button">Import mapping</button>
-      </div>`;
+      <button class="btn btn-sm btn-success mt-2" id="empty-load-mapping" type="button">Import mapping</button>`;
   }
   ui.summary.textContent = state.mappings.length
     ? `${state.mappings.length} field${state.mappings.length === 1 ? "" : "s"} connected`
@@ -196,11 +205,13 @@ function renderMappings() {
 }
 
 function drawConnectors() {
-  const rect = ui.layout.getBoundingClientRect();
-  if (!rect.width || window.matchMedia("(max-width: 620px)").matches) {
+  if (!ui.layout.getBoundingClientRect().width || window.matchMedia("(max-width: 767.98px)").matches) {
+    ui.connectors.classList.add("d-none");
     ui.connectors.replaceChildren();
     return;
   }
+  ui.connectors.classList.remove("d-none");
+  const rect = ui.connectors.getBoundingClientRect();
   ui.connectors.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
   ui.connectors.setAttribute("preserveAspectRatio", "none");
   const paths = ['<defs><marker id="connector-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#8cab94"/></marker><marker id="connector-arrow-selected" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 7 7"><path d="M0 0 7 3.5 0 7z" fill="#ca7958"/></marker></defs>'];
@@ -216,7 +227,7 @@ function drawConnectors() {
       const a = source.getBoundingClientRect();
       const sx = a.right - rect.left - 1, sy = a.top + a.height / 2 - rect.top;
       const bend = Math.max(32, (tx - sx) * 0.42);
-      paths.push(`<path class="connector-path${selected ? " is-selected" : ""}" d="M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}" marker-end="url(#connector-arrow${selected ? "-selected" : ""})"/>`);
+      paths.push(`<path d="M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}" fill="none" stroke="${selected ? "#ca7958" : "#8cab94"}" stroke-width="${selected ? "2" : "1.5"}" opacity="${selected ? ".95" : ".72"}" marker-end="url(#connector-arrow${selected ? "-selected" : ""})"/>`);
     }
   }
   ui.connectors.innerHTML = paths.join("");
@@ -245,9 +256,9 @@ function renderAll() {
   else persistWorkspace();
 }
 
-function loadSampleData() {
+async function loadSampleData() {
   if ((state.source.fields.length || state.target.fields.length || state.mappings.length) &&
-      !window.confirm("Loading sample data will replace the current schemas and mappings. Continue?")) {
+      !await requestConfirmation("Replace workspace with sample data?", "Loading sample data will replace the current schemas and mappings.", "Load sample data")) {
     return false;
   }
   state.source = sourceSchema;
@@ -262,11 +273,11 @@ function loadSampleData() {
   return true;
 }
 
-function clearSchema(side) {
+async function clearSchema(side) {
   const schema = side === "source" ? state.source : state.target;
   if (!schema.fields.length) return;
   if (state.mappings.length &&
-      !window.confirm(`Clearing the ${side} schema will also remove all ${state.mappings.length} mapping${state.mappings.length === 1 ? "" : "s"}. Continue?`)) {
+      !await requestConfirmation(`Clear ${side} schema?`, `This will also remove all ${state.mappings.length} mapping${state.mappings.length === 1 ? "" : "s"}.`, `Clear ${side} schema`)) {
     return;
   }
 
@@ -286,9 +297,9 @@ function clearSchema(side) {
 
 function showToast(message, isError = false) {
   clearTimeout(state.toastTimer);
-  ui.toast.textContent = message;
-  ui.toast.classList.toggle("is-error", isError);
-  ui.toast.classList.add("is-visible");
+  ui.toastMessage.textContent = message;
+  ui.toast.classList.toggle("text-bg-danger", isError);
+  ui.toast.classList.add("show");
   state.toastRemaining = 2800;
   state.toastPaused = ui.toast.matches(":hover");
   if (!state.toastPaused) scheduleToastDismissal();
@@ -296,11 +307,11 @@ function showToast(message, isError = false) {
 
 function scheduleToastDismissal() {
   state.toastDeadline = performance.now() + state.toastRemaining;
-  state.toastTimer = setTimeout(() => ui.toast.classList.remove("is-visible"), state.toastRemaining);
+  state.toastTimer = setTimeout(() => ui.toast.classList.remove("show"), state.toastRemaining);
 }
 
 ui.toast.addEventListener("pointerenter", () => {
-  if (!ui.toast.classList.contains("is-visible") || state.toastPaused) return;
+  if (!ui.toast.classList.contains("show") || state.toastPaused) return;
   clearTimeout(state.toastTimer);
   state.toastRemaining = Math.max(0, state.toastDeadline - performance.now());
   state.toastPaused = true;
@@ -342,7 +353,7 @@ function createMapping(sourcePath, targetPath) {
 }
 
 function handleFieldClick(event) {
-  const field = event.target.closest(".tree-field");
+  const field = event.target.closest("[data-ui='tree-field']");
   if (!field) return;
   const { side, path } = field.dataset;
   if (side === "source") {
@@ -766,17 +777,51 @@ function mappingExportData() {
   };
 }
 
+function showOverlay(panel) {
+  state.overlayReturnFocus = document.activeElement;
+  ui.exportDialog.hidden = panel !== ui.exportDialog;
+  ui.confirmationDialog.hidden = panel !== ui.confirmationDialog;
+  ui.overlay.classList.remove("d-none");
+  ui.overlay.classList.add("d-flex");
+  ui.overlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("overflow-hidden");
+  (panel.querySelector("textarea") || panel.querySelector("button"))?.focus();
+}
+
+function hideOverlay(result = false) {
+  ui.overlay.classList.remove("d-flex");
+  ui.overlay.classList.add("d-none");
+  ui.overlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("overflow-hidden");
+  ui.exportDialog.hidden = true;
+  ui.confirmationDialog.hidden = true;
+  if (state.confirmationResolver) {
+    state.confirmationResolver(result);
+    state.confirmationResolver = null;
+  }
+  if (state.overlayReturnFocus instanceof HTMLElement) state.overlayReturnFocus.focus();
+}
+
+function requestConfirmation(title, message, confirmLabel) {
+  document.querySelector("#confirmation-title").textContent = title;
+  ui.confirmationMessage.textContent = message;
+  document.querySelector("#accept-confirmation").textContent = confirmLabel;
+  showOverlay(ui.confirmationDialog);
+  return new Promise((resolve) => { state.confirmationResolver = resolve; });
+}
+
 function openMappingExport() {
   if (!state.mappings.length) return;
-  const dialog = document.querySelector("#mapping-export-dialog");
   const preview = document.querySelector("#mapping-export-preview");
   preview.value = `${JSON.stringify(mappingExportData(), null, 2)}\n`;
-  dialog.showModal();
+  const status = document.querySelector("#mapping-export-status");
+  status.textContent = "";
+  status.classList.remove("text-danger");
+  showOverlay(ui.exportDialog);
 }
 
 async function downloadMappingExport() {
   if (!state.mappings.length) return;
-  const dialog = document.querySelector("#mapping-export-dialog");
   const preview = document.querySelector("#mapping-export-preview");
   const status = document.querySelector("#mapping-export-status");
   const downloadButton = document.querySelector("#download-mapping-export");
@@ -786,7 +831,7 @@ async function downloadMappingExport() {
     downloadButton.disabled = true;
     if (typeof window.showSaveFilePicker === "function") {
       const handle = await window.showSaveFilePicker({
-        suggestedName: "fieldwork-mappings-only.json",
+        suggestedName: "fieldwork-mappings.json",
         types: [{ description: "JSON mapping", accept: { "application/json": [".json"] } }]
       });
       const writable = await handle.createWritable();
@@ -802,14 +847,14 @@ async function downloadMappingExport() {
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     }
-    dialog.close();
+    hideOverlay();
     showToast("Mapping exported as JSON.");
   } catch (error) {
     if (error && error.name === "AbortError") {
       status.textContent = "Save cancelled.";
     } else {
       status.textContent = error instanceof Error ? `Could not export mapping: ${error.message}` : "Could not export mapping.";
-      status.classList.add("is-error");
+      status.classList.add("text-danger");
     }
   } finally {
     downloadButton.disabled = false;
@@ -817,10 +862,12 @@ async function downloadMappingExport() {
 }
 
 function toggleGroup(event) {
-  const button = event.target.closest(".tree-group-label");
+  const button = event.target.closest("[data-ui='tree-group-label']");
   if (!button) return;
   const group = button.parentElement;
-  const collapsed = group.classList.toggle("is-collapsed");
+  const collapsed = group.dataset.collapsed !== "true";
+  group.dataset.collapsed = String(collapsed);
+  button.nextElementSibling.hidden = collapsed;
   button.setAttribute("aria-expanded", String(!collapsed));
   button.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${group.dataset.groupPath.split(".").pop()} fields`);
   requestAnimationFrame(drawConnectors);
@@ -843,24 +890,24 @@ ui.targetTree.addEventListener("click", (event) => {
 ui.sourceTree.addEventListener("click", toggleGroup);
 ui.targetTree.addEventListener("click", toggleGroup);
 ui.sourceTree.addEventListener("dragstart", (event) => {
-  const field = event.target.closest(".tree-field");
+  const field = event.target.closest("[data-ui='tree-field']");
   if (!field) return;
   state.dragSource = field.dataset.path;
   event.dataTransfer.setData("text/plain", state.dragSource);
   event.dataTransfer.effectAllowed = "link";
   state.selectedSource = state.dragSource;
-  field.classList.add("is-selected");
+  field.classList.add("active");
   updateHint();
 });
 ui.sourceTree.addEventListener("dragend", () => { state.dragSource = null; });
 ui.targetTree.addEventListener("dragover", (event) => {
-  if (event.target.closest(".tree-field") && state.dragSource) {
+  if (event.target.closest("[data-ui='tree-field']") && state.dragSource) {
     event.preventDefault();
     event.dataTransfer.dropEffect = "link";
   }
 });
 ui.targetTree.addEventListener("drop", (event) => {
-  const field = event.target.closest(".tree-field");
+  const field = event.target.closest("[data-ui='tree-field']");
   if (!field || !state.dragSource) return;
   event.preventDefault();
   createMapping(state.dragSource, field.dataset.path);
@@ -898,11 +945,13 @@ document.querySelector("#clear-mappings").addEventListener("click", () => {
 });
 document.querySelector("#export-mappings-button").addEventListener("click", openMappingExport);
 document.querySelector("#download-mapping-export").addEventListener("click", downloadMappingExport);
-document.querySelector("#close-mapping-export").addEventListener("click", () => {
-  document.querySelector("#mapping-export-dialog").close();
-});
-document.querySelector("#cancel-mapping-export").addEventListener("click", () => {
-  document.querySelector("#mapping-export-dialog").close();
+document.querySelector("#close-mapping-export").addEventListener("click", () => hideOverlay());
+document.querySelector("#cancel-mapping-export").addEventListener("click", () => hideOverlay());
+document.querySelector("#cancel-confirmation-close").addEventListener("click", () => hideOverlay(false));
+document.querySelector("#cancel-confirmation").addEventListener("click", () => hideOverlay(false));
+document.querySelector("#accept-confirmation").addEventListener("click", () => hideOverlay(true));
+ui.overlay.addEventListener("click", (event) => {
+  if (event.target === ui.overlay) hideOverlay(false);
 });
 document.querySelector("#load-sample-button").addEventListener("click", loadSampleData);
 document.querySelector("#import-mappings-button").addEventListener("click", () => {
@@ -934,6 +983,27 @@ ui.mappingFile.addEventListener("change", () => {
 document.querySelector("#source-menu").addEventListener("click", () => ui.sourceSchemaFile.click());
 document.querySelector("#target-menu").addEventListener("click", () => ui.targetSchemaFile.click());
 document.addEventListener("keydown", (event) => {
+  if (ui.overlay.getAttribute("aria-hidden") === "false") {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideOverlay(false);
+      return;
+    }
+    if (event.key === "Tab") {
+      const panel = ui.exportDialog.hidden ? ui.confirmationDialog : ui.exportDialog;
+      const focusable = Array.from(panel.querySelectorAll("button:not(:disabled), textarea:not(:disabled)"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    return;
+  }
   if (event.key === "Escape" && (state.selectedSource || state.selectedMapping)) {
     state.selectedSource = null;
     state.selectedMapping = null;

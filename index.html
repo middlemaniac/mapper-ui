@@ -5,106 +5,111 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5f1">
   <title>MM mapper</title>
-  <link rel="stylesheet" href="index.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="index.js" defer></script>
 </head>
-<body>
-  <!--
-    THESIS: Make field mapping feel calm, clear, and hands-on.
-    OWN-WORLD: An original, paper-like mapping bench with ink, moss, and apricot accents.
-    STORY: Read the source, pair fields in the middle, shape the destination on the right.
-    FIRST VIEWPORT: An empty mapping workspace makes importing schemas or loading sample data the next action.
-    FORM: Three-column workbench; searchable schema trees; relationship paths; responsive stacked fallback.
-  -->
+<body class="bg-body-tertiary">
   <input id="source-schema-file" type="file" accept=".json,.xml,.xsd,application/json,application/xml,text/xml" hidden>
   <input id="target-schema-file" type="file" accept=".json,.xml,.xsd,application/json,application/xml,text/xml" hidden>
   <input id="mapping-file" type="file" accept=".json,application/json" hidden>
 
-  <main class="app-shell">
-    <section class="mapping-layout" id="mapping-layout" aria-label="Data mapping workbench">
-      <svg class="connector-layer" id="connector-layer" aria-hidden="true"></svg>
-      <section class="schema-panel source-panel" aria-labelledby="source-title">
-        <div class="panel-heading">
-          <div class="panel-heading-main">
-            <span class="panel-icon source-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5h14v13H5zM8.5 9h7M8.5 12h7M8.5 15h4"/></svg></span>
-            <div><h2 id="source-title">Source</h2><p class="panel-subtitle" id="source-schema-name">No source schema</p></div>
+  <main class="container-fluid px-3 px-xl-5 py-3">
+    <section class="row g-3 position-relative" id="mapping-layout" aria-label="Data mapping workbench">
+      <svg class="position-absolute top-0 start-0 w-100 h-100 z-3 d-none" id="connector-layer" aria-hidden="true" pointer-events="none"></svg>
+      <section class="col-12 col-md-6 order-1" aria-labelledby="source-title">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-info" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 5.5h14v13H5zM8.5 9h7M8.5 12h7M8.5 15h4"/></svg></span>
+              <div><h2 class="h6 mb-1" id="source-title">Source</h2><p class="small text-body-secondary mb-0" id="source-schema-name">No source schema</p></div>
+            </div>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-secondary p-1" id="source-menu" type="button" aria-label="Import source schema" title="Import source schema"><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
+              <button class="btn btn-sm btn-outline-secondary p-1" id="clear-source-schema" type="button" aria-label="Clear source schema" title="Clear source schema" disabled><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+            </div>
           </div>
-          <div class="schema-actions">
-            <button class="icon-button" id="source-menu" type="button" aria-label="Import source schema" title="Import source schema"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
-            <button class="icon-button clear-icon-button" id="clear-source-schema" type="button" aria-label="Clear source schema" title="Clear source schema" disabled><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+          <div class="card-body p-2 d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-center px-2 py-1 small text-body-secondary"><span class="font-monospace"><span aria-hidden="true">{ }</span> <span id="source-root-name">Not loaded</span></span><span id="source-field-count"></span></div>
+            <label class="input-group input-group-sm my-2"><span class="input-group-text" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="5.3"/><path d="m13 13 3.5 3.5"/></svg></span><input class="form-control" id="source-search" type="search" placeholder="Find a source field" autocomplete="off" aria-label="Search source fields"><span class="input-group-text font-monospace">/</span></label>
+            <div class="list-group list-group-flush overflow-auto flex-grow-1" id="source-tree" aria-label="Source fields"></div>
           </div>
+          <div class="card-footer bg-white small text-body-secondary"><span aria-hidden="true">●</span> <span id="source-footnote-text">Import a schema to see source fields</span></div>
         </div>
-        <div class="schema-info"><span class="schema-root"><span class="root-glyph" aria-hidden="true">{ }</span><span id="source-root-name">Not loaded</span></span><span class="field-total" id="source-field-count"></span></div>
-        <label class="search-box"><svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.8" cy="8.8" r="5.3"/><path d="m13 13 3.5 3.5"/></svg><input id="source-search" type="search" placeholder="Find a source field" autocomplete="off" aria-label="Search source fields"><kbd>/</kbd></label>
-        <div class="tree-wrap" id="source-tree" aria-label="Source fields"></div>
-        <div class="panel-footnote"><span class="footnote-dot"></span> <span id="source-footnote-text">Import a schema to see source fields</span></div>
       </section>
 
-      <section class="mapping-panel" aria-labelledby="mapping-title">
-        <div class="mapping-heading">
-          <div><div class="section-kicker"><span class="kicker-line"></span> SOURCE TO TARGET</div><h2 id="mapping-title">Mappings <span class="count-badge" id="mapping-count">0</span></h2></div>
-          <div class="mapping-actions">
-            <button class="icon-button sample-icon-button" id="load-sample-button" type="button" aria-label="Load sample data" title="Load sample data"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m10 2.5 1.8 5.2 5.2 1.8-5.2 1.8L10 16.5l-1.8-5.2L3 9.5l5.2-1.8L10 2.5Zm5.5 10 .8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7Z"/></svg></button>
-            <button class="icon-button" id="import-mappings-button" type="button" aria-label="Import mapping" title="Import mapping"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
-            <button class="icon-button" id="export-mappings-button" type="button" aria-label="Export mapping" title="Export mapping" disabled><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 3v9m0 0 3-3m-3 3L7 9M4 14v2h12v-2"/></svg></button>
-            <button class="icon-button clear-icon-button" id="clear-mappings" type="button" aria-label="Clear all mappings" title="Clear all mappings" disabled><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+      <section class="col-12 order-3" aria-labelledby="mapping-title">
+        <div class="card shadow-sm">
+          <div class="card-header bg-white d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div><div class="small text-body-secondary font-monospace">SOURCE TO TARGET</div><h2 class="h5 mb-0 mt-1" id="mapping-title">Mappings <span class="badge text-bg-success" id="mapping-count">0</span></h2></div>
+            <div class="d-flex align-items-center gap-1">
+              <button class="btn btn-sm btn-outline-secondary p-1" id="load-sample-button" type="button" aria-label="Load sample data" title="Load sample data"><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m10 2.5 1.8 5.2 5.2 1.8-5.2 1.8L10 16.5l-1.8-5.2L3 9.5l5.2-1.8L10 2.5Zm5.5 10 .8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7Z"/></svg></button>
+              <button class="btn btn-sm btn-outline-secondary p-1" id="import-mappings-button" type="button" aria-label="Import mapping" title="Import mapping"><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
+              <button class="btn btn-sm btn-outline-secondary p-1" id="export-mappings-button" type="button" aria-label="Export mapping" title="Export mapping" disabled><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9m0 0 3-3m-3 3L7 9M4 14v2h12v-2"/></svg></button>
+              <button class="btn btn-sm btn-outline-danger p-1" id="clear-mappings" type="button" aria-label="Clear all mappings" title="Clear all mappings" disabled><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+            </div>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="small text-body-secondary mb-2" id="mapping-summary"></p>
+            <div class="row px-2 pb-2 small text-body-secondary fw-semibold text-uppercase" id="mapping-columns" hidden><span class="col">Source</span><span class="col">Target</span></div>
+            <div class="list-group overflow-auto" id="mapping-list"></div>
+            <div class="text-center py-4" id="empty-state">
+              <div class="d-flex align-items-center justify-content-center gap-4 mb-3 text-body-tertiary" aria-hidden="true"><span class="border rounded p-2">{ }</span><span>····→····</span><span class="border rounded p-2">{ }</span></div>
+              <strong class="d-block text-body-secondary">No mappings loaded</strong><p class="small text-body-secondary mx-auto my-2">Import source and target schemas first so mapping field paths can be checked.</p>
+              <button class="btn btn-sm btn-success mt-2" id="empty-load-mapping" type="button">Import mapping</button>
+            </div>
+            <div class="d-flex align-items-center gap-2 border-top pt-2 mt-2 small text-body-secondary" id="mapping-hint" aria-live="polite"><span class="text-warning" aria-hidden="true">✳</span><span>Select a source field to get started</span><kbd class="ms-auto">Esc</kbd></div>
           </div>
         </div>
-        <div class="mapping-summary" id="mapping-summary"></div>
-        <div class="mapping-columns" id="mapping-columns" hidden>
-          <span>Source</span><span aria-hidden="true"></span><span>Target</span><span aria-hidden="true"></span>
-        </div>
-        <div class="mapping-list" id="mapping-list"></div>
-        <div class="empty-state" id="empty-state">
-          <div class="empty-art" aria-hidden="true"><span class="empty-source"></span><span class="empty-path"></span><span class="empty-target"></span></div>
-          <strong>No mappings loaded</strong><p>Import source and target schemas first so mapping field paths can be checked.</p>
-          <div class="empty-state-actions">
-            <button class="button button-primary" id="empty-load-mapping" type="button">Import mapping</button>
-          </div>
-        </div>
-        <div class="mapping-hint" id="mapping-hint" aria-live="polite"><span class="hint-spark" aria-hidden="true">✳</span><span>Select a source field to get started</span><kbd>Esc</kbd></div>
       </section>
 
-      <section class="schema-panel target-panel" aria-labelledby="target-title">
-        <div class="panel-heading">
-          <div class="panel-heading-main">
-            <span class="panel-icon target-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5h14v13H5zM8.5 9h7M8.5 12h7M8.5 15h4"/></svg></span>
-            <div><h2 id="target-title">Target</h2><p class="panel-subtitle" id="target-schema-name">No target schema</p></div>
+      <section class="col-12 col-md-6 order-2" aria-labelledby="target-title">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-success" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 5.5h14v13H5zM8.5 9h7M8.5 12h7M8.5 15h4"/></svg></span>
+              <div><h2 class="h6 mb-1" id="target-title">Target</h2><p class="small text-body-secondary mb-0" id="target-schema-name">No target schema</p></div>
+            </div>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-secondary p-1" id="target-menu" type="button" aria-label="Import target schema" title="Import target schema"><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
+              <button class="btn btn-sm btn-outline-secondary p-1" id="clear-target-schema" type="button" aria-label="Clear target schema" title="Clear target schema" disabled><svg width="18" height="18" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+            </div>
           </div>
-          <div class="schema-actions">
-            <button class="icon-button" id="target-menu" type="button" aria-label="Import target schema" title="Import target schema"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 12V3m0 0L7 6m3-3 3 3M4 11v5h12v-5"/></svg></button>
-            <button class="icon-button clear-icon-button" id="clear-target-schema" type="button" aria-label="Clear target schema" title="Clear target schema" disabled><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4.5 6h11m-9.5 0 .7 10h7.6l.7-10M8 6V4h4v2m-3 3v4m2-4v4"/></svg></button>
+          <div class="card-body p-2 d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-center px-2 py-1 small text-body-secondary"><span class="font-monospace"><span aria-hidden="true">{ }</span> <span id="target-root-name">Not loaded</span></span><span id="target-field-count"></span></div>
+            <label class="input-group input-group-sm my-2"><span class="input-group-text" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="5.3"/><path d="m13 13 3.5 3.5"/></svg></span><input class="form-control" id="target-search" type="search" placeholder="Find a target field" autocomplete="off" aria-label="Search target fields"><span class="input-group-text font-monospace">/</span></label>
+            <div class="list-group list-group-flush overflow-auto flex-grow-1" id="target-tree" aria-label="Target fields"></div>
           </div>
+          <div class="card-footer bg-white small text-body-secondary"><span aria-hidden="true">●</span> <span id="target-footnote-text">Import a schema to see target fields</span></div>
         </div>
-        <div class="schema-info"><span class="schema-root target-root"><span class="root-glyph" aria-hidden="true">{ }</span><span id="target-root-name">Not loaded</span></span><span class="field-total" id="target-field-count"></span></div>
-        <label class="search-box"><svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.8" cy="8.8" r="5.3"/><path d="m13 13 3.5 3.5"/></svg><input id="target-search" type="search" placeholder="Find a target field" autocomplete="off" aria-label="Search target fields"><kbd>/</kbd></label>
-        <div class="tree-wrap" id="target-tree" aria-label="Target fields"></div>
-        <div class="panel-footnote target-footnote"><span class="footnote-dot"></span> <span id="target-footnote-text">Import a schema to see target fields</span></div>
       </section>
     </section>
 
-    <footer class="workspace-footer">
-      <div class="footer-status"><span class="status-icon" aria-hidden="true">✓</span><span id="footer-status-text">Ready to map</span></div>
-      <div class="footer-legend"><span><i class="legend-dot legend-mapped"></i> Mapped</span><span><i class="legend-dot legend-ready"></i> Ready to map</span></div>
-      <span class="footer-note">Your work is saved in this browser; export a portable copy.</span>
+    <footer class="d-flex align-items-center flex-wrap gap-3 mt-3 small text-body-secondary">
+      <div class="d-flex align-items-center gap-2 text-success fw-semibold"><span aria-hidden="true">✓</span><span id="footer-status-text">Ready to map</span></div>
+      <div class="d-flex align-items-center gap-3 border-start ps-3"><span><i class="d-inline-block rounded-circle bg-success p-1 me-1" aria-hidden="true"></i>Mapped</span><span><i class="d-inline-block rounded-circle border bg-white p-1 me-1" aria-hidden="true"></i>Ready to map</span></div>
+      <span class="ms-auto">Your work is saved in this browser; export a portable copy.</span>
     </footer>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <dialog class="mapping-export-dialog" id="mapping-export-dialog" aria-labelledby="mapping-export-title">
-    <div class="mapping-export-heading">
-      <div>
-        <h2 id="mapping-export-title">Export mapping</h2>
+  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-body" id="toast-message"></div></div>
+  </div>
+  <div class="modal position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-none align-items-center justify-content-center p-3 overflow-hidden" id="dialog-overlay" aria-hidden="true">
+    <section class="modal-content bg-body shadow-lg w-75" id="mapping-export-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-export-title" hidden>
+      <div class="modal-header"><h2 class="modal-title fs-5" id="mapping-export-title">Export mapping</h2><button class="btn-close" id="close-mapping-export" type="button" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <label class="form-label" for="mapping-export-preview">Mapping JSON</label>
+        <textarea class="form-control font-monospace" id="mapping-export-preview" rows="8" readonly spellcheck="false"></textarea>
+        <p class="small text-body-secondary mt-2 mb-0" id="mapping-export-status" aria-live="polite"></p>
       </div>
-      <button class="icon-button" id="close-mapping-export" type="button" aria-label="Close export preview" title="Close">
-        <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg>
-      </button>
-    </div>
-    <label class="mapping-export-label" for="mapping-export-preview">Mapping JSON</label>
-    <textarea class="mapping-export-preview" id="mapping-export-preview" readonly spellcheck="false"></textarea>
-    <div class="mapping-export-actions">
-      <button class="button button-quiet" id="cancel-mapping-export" type="button">Cancel</button>
-      <button class="button button-primary" id="download-mapping-export" type="button">Download mapping</button>
-    </div>
-  </dialog>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" id="cancel-mapping-export" type="button">Cancel</button><button class="btn btn-success" id="download-mapping-export" type="button">Download mapping</button></div>
+    </section>
+    <section class="modal-dialog modal-dialog-centered w-100" id="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" hidden>
+      <div class="modal-content bg-body shadow-lg">
+        <div class="modal-header"><h2 class="modal-title fs-5" id="confirmation-title">Confirm action</h2><button class="btn-close" id="cancel-confirmation-close" type="button" aria-label="Close"></button></div>
+        <div class="modal-body" id="confirmation-message"></div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" id="cancel-confirmation" type="button">Cancel</button><button class="btn btn-danger" id="accept-confirmation" type="button">Continue</button></div>
+      </div>
+    </section>
+  </div>
 </body>
 </html>

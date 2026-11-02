@@ -27,14 +27,18 @@ MM Mapper is a lightweight browser-based field mapping tool for comparing a sour
 ├── LICENSE
 ├── README.md
 ├── index.html
-└── index.js
+├── index.js
+├── state.js
+└── ui.js
 
 ```
 
 ### File overview
 
 - `index.html` — application layout and UI elements
-- `index.js` — schema parsing, import/export logic, drag-and-drop mapping, and browser persistence
+- `index.js` — schema parsing, mapping rules, and import/export data
+- `state.js` — application state and mutation, built-in sample schemas/mappings and sample loading, and browser workspace persistence
+- `ui.js` — DOM rendering, event interpretation, file selection/reading, downloads, dialogs, toasts, and connector drawing; passes datasets and plain file contents to the core
 - `LICENSE` — project licensing information
 
 ## Supported inputs

@@ -3,7 +3,7 @@ import { createMapperView } from "./ui.js";
 
 const workspaceStore = createWorkspaceStore({ validateSchema, resolveExistingMappings });
 const state = workspaceStore.state;
-const view = createMapperView(state, { fieldMap, mappingSourcePaths });
+const view = createMapperView(state, { fieldMap });
 
 function flattenFields(schema, parentPath = schema.root, result = []) {
   for (const field of schema.fields) {
@@ -18,13 +18,6 @@ function fieldMap(schema) {
   return new Map(flattenFields(schema).map((field) => [field.path, field]));
 }
 
-function mappingSourcePaths(mapping) {
-  return [mapping.sourcePath];
-}
-
-function renderMappings() { view.renderMappings(); }
-function drawConnectors() { view.drawConnectors(); }
-function updateHint(message) { view.updateHint(message); }
 function refreshTrees() { view.refreshTrees(); }
 function showToast(message, isError = false) { view.showToast(message, isError); }
 function requestConfirmation(title, message, confirmLabel) {
@@ -36,75 +29,131 @@ function renderAll() {
   if (warning) showToast(warning, true);
 }
 
-async function loadSampleData() {
-  if ((state.source.fields.length || state.target.fields.length || state.mappings.length) &&
+function hasAnyWorkspaceData() {
+  return state.levels.some((level) => level.fields.length) || state.links.some((link) => link.mappings.length);
+}
+
+function loadSampleData() {
+  view.openSampleDialog(workspaceStore.getSamples());
+}
+
+async function selectSample(sampleId) {
+  view.hideOverlay(false);
+  const sample = workspaceStore.getSamples().find((item) => item.id === sampleId);
+  if (!sample) return false;
+  if (hasAnyWorkspaceData() &&
       !await requestConfirmation("Replace workspace with sample data?", "Loading sample data will replace the current schemas and mappings.", "Load sample data")) {
     return false;
   }
-  workspaceStore.loadSampleData();
+  workspaceStore.loadSampleData(sampleId);
   view.resetSearch();
   renderAll();
-  showToast("Loaded the synthetic customer migration sample.");
+  showToast(`Loaded the ${sample.name} sample.`);
   return true;
 }
 
-async function clearSchema(side) {
-  const schema = side === "source" ? state.source : state.target;
-  if (!schema.fields.length) return;
-  if (state.mappings.length &&
-      !await requestConfirmation(`Clear ${side} schema?`, `This will also remove all ${state.mappings.length} mapping${state.mappings.length === 1 ? "" : "s"}.`, `Clear ${side} schema`)) {
-    return;
+async function clearAll() {
+  const hasExtraLevels = state.levels.length > 2;
+  if (!hasAnyWorkspaceData() && !hasExtraLevels) return false;
+  if (!await requestConfirmation("Clear all schemas and mappings?", "This will clear every schema and mapping and remove any additional target levels.", "Clear all")) {
+    return false;
   }
-
-  if (side === "source") {
-    workspaceStore.update({ source: { name: "No source schema", root: "", fields: [] } });
-    view.resetSearch();
-    workspaceStore.update({ selectedSource: null });
-  } else {
-    workspaceStore.update({ target: { name: "No target schema", root: "", fields: [] } });
-    view.resetSearch();
-  }
-  workspaceStore.update({ mappings: [], selectedMapping: null });
+  workspaceStore.clearWorkspace();
+  view.resetSearch();
   renderAll();
-  showToast(`Cleared the ${side} schema.`);
+  showToast("All schemas, mappings, and additional target levels cleared.");
+  return true;
 }
 
-function createMapping(sourcePath, targetPath) {
-  if (!fieldMap(state.source).has(sourcePath) || !fieldMap(state.target).has(targetPath)) {
+function totalMappingCount() {
+  return state.links.reduce((sum, link) => sum + link.mappings.length, 0);
+}
+
+async function clearSchema(levelIndex) {
+  const level = state.levels[levelIndex];
+  if (!level || !level.fields.length) return;
+  const affected = (state.links[levelIndex - 1]?.mappings.length || 0) + (state.links[levelIndex]?.mappings.length || 0);
+  if (affected &&
+      !await requestConfirmation(`Clear ${level.label} schema?`, `This will also remove ${affected} mapping${affected === 1 ? "" : "s"} connected to it.`, `Clear ${level.label} schema`)) {
+    return;
+  }
+  workspaceStore.clearSchema(levelIndex);
+  view.resetSearch();
+  renderAll();
+  showToast(`Cleared the ${level.label} schema.`);
+}
+
+function createMapping(linkIndex, sourcePath, targetPath) {
+  const fromSchema = state.levels[linkIndex];
+  const toSchema = state.levels[linkIndex + 1];
+  if (!fieldMap(fromSchema).has(sourcePath) || !fieldMap(toSchema).has(targetPath)) {
     showToast("Could not find that field in the current schema.", true);
     return;
   }
-  const existing = state.mappings.find((mapping) => mapping.targetPath === targetPath);
+  const existing = state.links[linkIndex].mappings.find((mapping) => mapping.targetPath === targetPath);
   if (existing) {
-    workspaceStore.update({ selectedSource: null });
+    workspaceStore.update({ selectedField: null });
     renderAll();
-    updateHint("That target already has a mapping. Remove it first to replace it.");
     showToast("This target is already mapped. Remove its existing mapping first.", true);
     return;
   }
-  workspaceStore.addMapping({
+  workspaceStore.addMapping(linkIndex, {
     id: `mapping-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     sourcePath, targetPath
   });
-  workspaceStore.update({ selectedSource: null, selectedMapping: null });
+  workspaceStore.update({ selectedField: null, selectedMapping: null, selectedChain: null });
   renderAll();
-  showToast(`${fieldMap(state.source).get(sourcePath).name} mapped to ${fieldMap(state.target).get(targetPath).name}`);
+  showToast(`${fieldMap(fromSchema).get(sourcePath).name} mapped to ${fieldMap(toSchema).get(targetPath).name}`);
 }
 
-function handleFieldClick(dataset) {
-  const { side, path } = dataset;
-  if (side === "source") {
-    workspaceStore.update({
-      selectedSource: state.selectedSource === path ? null : path,
-      selectedMapping: null
-    });
-    refreshTrees();
-    updateHint();
-  } else if (state.selectedSource) createMapping(state.selectedSource, path);
-  else {
-    updateHint("Choose a source field first");
-    showToast("Select a source field first.", true);
+function handleFieldClick(levelIndex, path) {
+  const selected = state.selectedField;
+  if (selected && selected.levelIndex === levelIndex - 1) {
+    createMapping(levelIndex - 1, selected.path, path);
+    return;
   }
+  const isLastLevel = levelIndex === state.levels.length - 1;
+  if (isLastLevel) {
+    showToast("Select a field on the level to its left first.", true);
+    return;
+  }
+  workspaceStore.update({
+    selectedField: selected && selected.levelIndex === levelIndex && selected.path === path ? null : { levelIndex, path },
+    selectedMapping: null,
+    selectedChain: null
+  });
+  refreshTrees();
+}
+
+async function addLevel() {
+  workspaceStore.addLevel();
+  renderAll();
+  showToast("Added a new target level.");
+}
+
+async function insertLevel(linkIndex) {
+  const link = state.links[linkIndex];
+  if (!link) return;
+  if (link.mappings.length &&
+      !await requestConfirmation("Insert target level here?", `This will remove ${link.mappings.length} mapping${link.mappings.length === 1 ? "" : "s"} between ${state.levels[linkIndex].label} and ${state.levels[linkIndex + 1].label}.`, "Insert target level")) {
+    return;
+  }
+  workspaceStore.addLevel(linkIndex + 1);
+  renderAll();
+  showToast("Inserted a new target level.");
+}
+
+async function removeLevel(levelIndex) {
+  const level = state.levels[levelIndex];
+  if (!level) return;
+  const affected = (state.links[levelIndex - 1]?.mappings.length || 0) + (state.links[levelIndex]?.mappings.length || 0);
+  if (affected &&
+      !await requestConfirmation(`Remove ${level.label}?`, `This will also remove ${affected} mapping${affected === 1 ? "" : "s"} connected to it.`, "Remove level")) {
+    return;
+  }
+  workspaceStore.removeLevel(levelIndex);
+  renderAll();
+  showToast(`Removed ${level.label}.`);
 }
 
 function validateSchema(schema, label) {
@@ -184,13 +233,30 @@ function schemaFromJson(data, fileName) {
   return schema;
 }
 
+function xmlAttribute(node, name) {
+  return node.attributes.find((attribute) => attribute.name === name || attribute.localName === name)?.value || "";
+}
+
+function xmlDescendants(node, localName) {
+  const descendants = [];
+  function visit(parent) {
+    for (const child of parent.children) {
+      if (!localName || child.localName === localName) descendants.push(child);
+      visit(child);
+    }
+  }
+  if (node) visit(node);
+  return descendants;
+}
+
 function xsdType(element, schemaElement) {
-  const declaredType = element.getAttribute("type") || "";
-  const inlineType = Array.from(element.children || []).find((child) => child.localName === "simpleType");
-  const restriction = inlineType && Array.from(inlineType.getElementsByTagName("*")).find((child) => child.localName === "restriction");
-  const base = (restriction && restriction.getAttribute("base")) || declaredType;
+  const declaredType = xmlAttribute(element, "type");
+  const inlineType = element.children.find((child) => child.localName === "simpleType");
+  const restriction = inlineType && xmlDescendants(inlineType, "restriction")[0];
+  const base = (restriction && xmlAttribute(restriction, "base")) || declaredType;
   const localType = base.split(":").pop().toLowerCase();
-  if (schemaElement.getAttribute("maxOccurs") === "unbounded" || Number(schemaElement.getAttribute("maxOccurs")) > 1) return "array";
+  const maxOccurs = xmlAttribute(schemaElement, "maxOccurs");
+  if (maxOccurs === "unbounded" || Number(maxOccurs) > 1) return "array";
   if (["boolean"].includes(localType)) return "boolean";
   if (["byte", "short", "int", "integer", "long", "nonnegativeinteger", "positiveinteger"].includes(localType)) return "integer";
   if (["decimal", "float", "double"].includes(localType)) return "number";
@@ -198,29 +264,28 @@ function xsdType(element, schemaElement) {
   return "string";
 }
 
-function parseXsd(text, fileName) {
-  const xml = new DOMParser().parseFromString(text, "application/xml");
-  if (xml.getElementsByTagName("parsererror").length) throw new Error("The selected XSD is not valid XML.");
-  const xsd = xml.getElementsByTagNameNS("*", "schema")[0] ||
-    (xml.documentElement?.localName === "schema" ? xml.documentElement : null);
+function parseXsd(xmlDocument, fileName) {
+  if (!xmlDocument || xmlDocument.hasParseError) throw new Error("The selected XSD is not valid XML.");
+  const root = xmlDocument.root;
+  const xsd = xmlDescendants(root, "schema")[0] || (root?.localName === "schema" ? root : null);
   if (!xsd) throw new Error("The selected XML file does not contain an XSD schema.");
-  const globalElements = Array.from(xsd.children).filter((node) => node.localName === "element" && node.getAttribute("name"));
+  const globalElements = xsd.children.filter((node) => node.localName === "element" && xmlAttribute(node, "name"));
   const rootElement = globalElements[0];
   if (!rootElement) throw new Error("The XSD needs a named top-level element.");
-  const namedTypes = new Map(Array.from(xsd.children)
-    .filter((node) => node.localName === "complexType" && node.getAttribute("name"))
-    .map((node) => [node.getAttribute("name"), node]));
+  const namedTypes = new Map(xsd.children
+    .filter((node) => node.localName === "complexType" && xmlAttribute(node, "name"))
+    .map((node) => [xmlAttribute(node, "name"), node]));
 
   function elementFields(element) {
-    const inline = Array.from(element.children).find((child) => child.localName === "complexType");
-    const declaredName = (element.getAttribute("type") || "").split(":").pop();
+    const inline = element.children.find((child) => child.localName === "complexType");
+    const declaredName = xmlAttribute(element, "type").split(":").pop();
     const complex = inline || namedTypes.get(declaredName);
     if (!complex) return [];
     const fields = [];
     function visit(node) {
-      for (const child of Array.from(node.children || [])) {
-        if (child.localName === "element" && child.getAttribute("name")) {
-          const name = child.getAttribute("name");
+      for (const child of node.children) {
+        if (child.localName === "element" && xmlAttribute(child, "name")) {
+          const name = xmlAttribute(child, "name");
           const nested = elementFields(child);
           const type = nested.length ? "object" : xsdType(child, xsd);
           fields.push({ name, type, ...(nested.length ? { children: nested } : {}) });
@@ -230,16 +295,14 @@ function parseXsd(text, fileName) {
       }
     }
     visit(complex);
-    for (const attribute of Array.from(complex.getElementsByTagName("*")).filter((node) =>
-      node.localName === "attribute" && node.getAttribute("name") && node.parentElement?.localName === "complexType"
-    )) {
-      fields.push({ name: `@${attribute.getAttribute("name")}`, type: xsdType(attribute, xsd) });
+    for (const attribute of complex.children.filter((node) => node.localName === "attribute" && xmlAttribute(node, "name"))) {
+      fields.push({ name: `@${xmlAttribute(attribute, "name")}`, type: xsdType(attribute, xsd) });
     }
     return fields;
   }
 
-  const root = rootElement.getAttribute("name");
-  const schema = { name: fileBaseName(fileName), root, fields: elementFields(rootElement) };
+  const schemaRoot = xmlAttribute(rootElement, "name");
+  const schema = { name: fileBaseName(fileName), root: schemaRoot, fields: elementFields(rootElement) };
   validateSchema(schema, "XSD");
   return schema;
 }
@@ -257,10 +320,9 @@ function inferXmlType(values) {
   return types.every((type) => type === types[0]) ? types[0] : "string";
 }
 
-function parseXmlSample(text, fileName) {
-  const xml = new DOMParser().parseFromString(text, "application/xml");
-  if (xml.getElementsByTagName("parsererror").length) throw new Error("The selected sample XML is not valid XML.");
-  const rootElement = xml.documentElement;
+function parseXmlSample(xmlDocument, fileName) {
+  if (!xmlDocument || xmlDocument.hasParseError) throw new Error("The selected sample XML is not valid XML.");
+  const rootElement = xmlDocument.root;
   if (!rootElement || rootElement.localName === "parsererror") throw new Error("The selected XML file is empty.");
   const xmlSchemaInstanceNamespace = "http://www.w3.org/2001/XMLSchema-instance";
 
@@ -280,7 +342,7 @@ function parseXmlSample(text, fileName) {
     const repeatedChildren = new Set();
 
     for (const parent of parents) {
-      for (const attribute of Array.from(parent.attributes || [])) {
+      for (const attribute of parent.attributes) {
         if (!isDataAttribute(attribute)) continue;
         const name = `@${localName(attribute)}`;
         if (!attributes.has(name)) attributes.set(name, []);
@@ -288,7 +350,7 @@ function parseXmlSample(text, fileName) {
       }
 
       const counts = new Map();
-      for (const child of Array.from(parent.children || [])) {
+      for (const child of parent.children) {
         const name = localName(child);
         if (!childGroups.has(name)) childGroups.set(name, []);
         childGroups.get(name).push(child);
@@ -305,16 +367,10 @@ function parseXmlSample(text, fileName) {
 
     for (const [name, elements] of childGroups) {
       const children = fieldsFor(elements);
-      const textValues = elements.map((element) =>
-        Array.from(element.childNodes || [])
-          .filter((node) => node.nodeType === 3 || node.nodeType === 4)
-          .map((node) => node.textContent)
-          .join("")
-      );
+      const textValues = elements.map((element) => element.textNodes.join(""));
       const hasTextContent = textValues.some((value) => value.trim());
       const hasStructuredContent = elements.some((element) =>
-        Array.from(element.children || []).length > 0 ||
-        Array.from(element.attributes || []).some(isDataAttribute)
+        element.children.length > 0 || element.attributes.some(isDataAttribute)
       );
       if (hasStructuredContent && hasTextContent) {
         children.push({ name: "#text", type: inferXmlType(textValues) });
@@ -366,64 +422,71 @@ function resolveExistingMappings(mappings, sourceSchema, targetSchema) {
   });
 }
 
-function keepMappingsForSchemas(mappings, sourceSchema, targetSchema) {
+function keepMappingsForLink(mappings, sourceSchema, targetSchema) {
   const sourcePaths = new Set(flattenFields(sourceSchema).map((field) => field.path));
   const targetPaths = new Set(flattenFields(targetSchema).map((field) => field.path));
-  const remaining = mappings.filter((mapping) =>
-    mappingSourcePaths(mapping).every((path) => sourcePaths.has(path)) && targetPaths.has(mapping.targetPath)
-  );
+  const remaining = mappings.filter((mapping) => sourcePaths.has(mapping.sourcePath) && targetPaths.has(mapping.targetPath));
   return { mappings: remaining, removed: mappings.length - remaining.length };
 }
 
-async function importSchemaFile(text, fileName, side) {
+async function importSchemaFile(text, fileName, levelIndex, xmlDocument) {
+  const level = state.levels[levelIndex];
+  const side = level.kind;
   try {
     let schema;
-    const xmlDocument = text.trimStart().startsWith("<");
-    const xmlRoot = xmlDocument
-      ? new DOMParser().parseFromString(text, "application/xml").documentElement
-      : null;
     const isXsd = /\.xsd$/i.test(fileName) ||
-      (xmlRoot?.localName === "schema" && xmlRoot.namespaceURI === "http://www.w3.org/2001/XMLSchema");
+      (xmlDocument?.root?.localName === "schema" && xmlDocument.root.namespaceURI === "http://www.w3.org/2001/XMLSchema");
     if (isXsd) {
-      schema = parseXsd(text, fileName);
+      schema = parseXsd(xmlDocument, fileName);
     } else if (xmlDocument) {
-      schema = parseXmlSample(text, fileName);
+      schema = parseXmlSample(xmlDocument, fileName);
     } else {
       const data = JSON.parse(text);
-      const embeddedSchema = data?.format === "fieldwork-schema" && data.version === 1
+      const schemaData = data?.format === "fieldwork-schema"
         ? data.schema
-        : side === "source" ? data?.source : data?.target;
-      schema = schemaFromJson(embeddedSchema || data, fileName);
+        : data;
+      schema = schemaFromJson(schemaData, fileName);
     }
-    const previousMappings = state.mappings;
-    workspaceStore.update(side === "source" ? { source: schema } : { target: schema });
-    const result = keepMappingsForSchemas(previousMappings, state.source, state.target);
-    workspaceStore.update({ mappings: result.mappings, selectedSource: null, selectedMapping: null });
+    const replacementLevel = { ...level, ...schema };
+    let removed = 0;
+    const incoming = state.links[levelIndex - 1];
+    if (incoming) {
+      const result = keepMappingsForLink(incoming.mappings, state.levels[levelIndex - 1], replacementLevel);
+      workspaceStore.setLinkMappings(levelIndex - 1, result.mappings);
+      removed += result.removed;
+    }
+    const outgoing = state.links[levelIndex];
+    if (outgoing) {
+      const result = keepMappingsForLink(outgoing.mappings, replacementLevel, state.levels[levelIndex + 1]);
+      workspaceStore.setLinkMappings(levelIndex, result.mappings);
+      removed += result.removed;
+    }
+    workspaceStore.replaceSchema(levelIndex, schema);
+    workspaceStore.update({ selectedField: null, selectedMapping: null, selectedChain: null });
     view.resetSearch();
     renderAll();
-    showToast(result.removed
-      ? `Loaded ${schema.name}; removed ${result.removed} mapping${result.removed === 1 ? "" : "s"} that referenced missing fields.`
-      : `Loaded ${schema.name} as the ${side} schema.`);
+    showToast(removed
+      ? `Loaded ${schema.name}; removed ${removed} mapping${removed === 1 ? "" : "s"} that referenced missing fields.`
+      : `Loaded ${schema.name} as the ${level.label} schema.`);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : `Could not load the ${side} schema.`, true);
+    showToast(error instanceof Error ? error.message : `Could not load the ${level.label} schema.`, true);
   }
 }
 
-async function importMappingFile(text) {
+async function importMappingFile(linkIndex, text) {
+  const fromSchema = state.levels[linkIndex];
+  const toSchema = state.levels[linkIndex + 1];
   try {
-    if (!state.source.fields.length || !state.target.fields.length) {
-      throw new Error("Import both source and target schemas before loading mappings.");
+    if (!fromSchema.fields.length || !toSchema.fields.length) {
+      throw new Error(`Import both ${fromSchema.label} and ${toSchema.label} schemas before loading mappings.`);
     }
     const data = JSON.parse(text);
-    let importedMappings;
-    if (data && data.format === "fieldwork-mappings" && data.version === 1 && Array.isArray(data.mappings)) {
-      importedMappings = data.mappings;
-    } else if (data && data.version === 1 && Array.isArray(data.mappings)) {
-      importedMappings = data.mappings;
+    if (!data || data.format !== "fieldwork-mappings" || !Array.isArray(data.mappings)) {
+      throw new Error("Unsupported mapping file. Choose Fieldwork mapping JSON.");
     }
-    if (!importedMappings) throw new Error("Unsupported mapping file. Choose Fieldwork mapping JSON.");
-    const mappings = resolveExistingMappings(importedMappings, state.source, state.target);
-    workspaceStore.update({ mappings, selectedSource: null, selectedMapping: null });
+    const mappings = resolveExistingMappings(data.mappings, fromSchema, toSchema);
+    workspaceStore.setLinkMappings(linkIndex, mappings);
+    workspaceStore.update({ selectedField: null, selectedMapping: null, selectedChain: null });
     renderAll();
     showToast(`Imported ${mappings.length} mapping${mappings.length === 1 ? "" : "s"} for the loaded schemas.`);
   } catch (error) {
@@ -431,82 +494,188 @@ async function importMappingFile(text) {
   }
 }
 
-function mappingExportData() {
+function mappingExportData(linkIndex) {
   return {
     format: "fieldwork-mappings",
-    version: 1,
     exportedAt: new Date().toISOString(),
     schemasIncluded: false,
-    mappings: state.mappings.map((mapping) => {
-      const sources = mappingSourcePaths(mapping);
-      return {
-        sourcePath: sources[0],
-        targetPath: mapping.targetPath
-      };
-    })
+    mappings: state.links[linkIndex].mappings.map((mapping) => ({
+      sourcePath: mapping.sourcePath,
+      targetPath: mapping.targetPath
+    }))
   };
 }
 
-function openMappingExport() {
-  if (!state.mappings.length) return;
-  view.showExportPreview(`${JSON.stringify(mappingExportData(), null, 2)}\n`);
+function openMappingExport(linkIndex) {
+  if (!state.links[linkIndex].mappings.length) return;
+  view.showExportPreview(`${JSON.stringify(mappingExportData(linkIndex), null, 2)}\n`, {
+    title: "Export mapping",
+    filename: `fieldwork-link-${linkIndex + 1}-mappings.json`
+  });
 }
 
-function getMappingExportJson() {
-  if (!state.mappings.length) return "";
-  return `${JSON.stringify(mappingExportData(), null, 2)}\n`;
+function openExportAll() {
+  if (!state.links.some((link) => link.mappings.length)) return;
+  const data = {
+    format: "fieldwork-workspace-mappings",
+    exportedAt: new Date().toISOString(),
+    schemasIncluded: false,
+    levels: state.levels.map((level) => ({
+      label: level.label,
+      kind: level.kind,
+      schemaName: level.name,
+      root: level.root || null
+    })),
+    links: state.links.map((link, linkIndex) => ({
+      sourceLevel: state.levels[linkIndex].label,
+      targetLevel: state.levels[linkIndex + 1].label,
+      mappings: link.mappings.map(({ sourcePath, targetPath }) => ({ sourcePath, targetPath }))
+    }))
+  };
+  view.showExportPreview(`${JSON.stringify(data, null, 2)}\n`, {
+    title: "Export all mappings",
+    filename: "fieldwork-workspace-mappings.json"
+  });
 }
 
-function handleDragStart(dataset) {
-  workspaceStore.update({ dragSource: dataset.path, selectedSource: dataset.path });
-  updateHint();
+async function importAllMappings(text) {
+  try {
+    const data = JSON.parse(text);
+    if (!data || data.format !== "fieldwork-workspace-mappings" ||
+      !Array.isArray(data.levels) || !Array.isArray(data.links)) {
+      throw new Error("Unsupported file. Choose a workspace mappings JSON exported via \"Export all mappings\".");
+    }
+    if (data.levels.length < 2) {
+      throw new Error("The workspace mappings file must include at least a source and target level.");
+    }
+    if (data.links.length !== data.levels.length - 1) {
+      throw new Error("The workspace mappings file must include one link between each adjacent level.");
+    }
+    if (data.links.some((link) => !link || !Array.isArray(link.mappings))) {
+      throw new Error("Every workspace link must include a mappings array.");
+    }
+    let importedLevels = null;
+    if (data.schemasIncluded === true) {
+      const multipleTargets = data.levels.filter((level) => level?.kind === "target").length > 1;
+      let targetIndex = 0;
+      importedLevels = data.levels.map((level, index) => {
+        if (!level || !level.schema || !["source", "target"].includes(level.kind)) {
+          throw new Error(`Level ${index + 1} must include a schema and a valid kind.`);
+        }
+        validateSchema(level.schema, `Imported ${level.label || `level ${index + 1}`}`);
+        const label = level.kind === "source" ? "Source" : multipleTargets ? `Target level ${++targetIndex}` : "Target";
+        return { kind: level.kind, label, ...level.schema };
+      });
+      if (!importedLevels.length || importedLevels[0].kind !== "source" || importedLevels.slice(1).some((level) => level.kind !== "target")) {
+        throw new Error("The imported workspace must start with one source level followed by target levels.");
+      }
+    }
+    if ((hasAnyWorkspaceData() || (importedLevels && state.levels.length > 2)) &&
+        !await requestConfirmation(
+          importedLevels ? "Replace workspace schemas and mappings?" : "Replace all mappings?",
+          importedLevels
+            ? "This will replace the schemas and mappings in the current workspace."
+            : "This will replace the mappings on every link with the ones from the imported file.",
+          "Import all"
+        )) {
+      return false;
+    }
+    if (importedLevels) workspaceStore.replaceLevels(importedLevels);
+    while (state.levels.length < data.levels.length) workspaceStore.addLevel();
+    while (state.levels.length > data.levels.length) workspaceStore.removeLevel(state.levels.length - 1);
+    let totalImported = 0;
+    let totalSkipped = 0;
+    data.links.forEach((linkData, linkIndex) => {
+      const fromSchema = state.levels[linkIndex];
+      const toSchema = state.levels[linkIndex + 1];
+      if (!fromSchema || !toSchema) return;
+      const sourcePaths = new Set(flattenFields(fromSchema).map((field) => field.path));
+      const targetPaths = new Set(flattenFields(toSchema).map((field) => field.path));
+      const usedTargets = new Set();
+      const mappings = [];
+      (linkData.mappings || []).forEach((mapping, index) => {
+        if (mapping && sourcePaths.has(mapping.sourcePath) && targetPaths.has(mapping.targetPath) && !usedTargets.has(mapping.targetPath)) {
+          usedTargets.add(mapping.targetPath);
+          mappings.push({ id: `import-${Date.now()}-${linkIndex}-${index}`, sourcePath: mapping.sourcePath, targetPath: mapping.targetPath });
+          totalImported += 1;
+        } else {
+          totalSkipped += 1;
+        }
+      });
+      workspaceStore.setLinkMappings(linkIndex, mappings);
+    });
+    workspaceStore.update({ selectedField: null, selectedMapping: null, selectedChain: null, dragSource: null });
+    view.resetSearch();
+    renderAll();
+    showToast(totalSkipped
+      ? `Imported ${totalImported} mapping${totalImported === 1 ? "" : "s"}; skipped ${totalSkipped} that referenced fields not in the loaded schemas.`
+      : `Imported ${totalImported} mapping${totalImported === 1 ? "" : "s"} across ${data.links.length} link${data.links.length === 1 ? "" : "s"}.`);
+    return true;
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Could not import the workspace mappings file.", true);
+    return false;
+  }
+}
+
+function handleDragStart(levelIndex, path) {
+  workspaceStore.update({ dragSource: { levelIndex, path }, selectedField: { levelIndex, path } });
 }
 
 function handleDragEnd() { workspaceStore.update({ dragSource: null }); }
 
-function handleDrop(dataset) {
-  if (!state.dragSource) return;
-  createMapping(state.dragSource, dataset.path);
+function handleDrop(levelIndex, path) {
+  if (!state.dragSource || state.dragSource.levelIndex !== levelIndex - 1) return;
+  createMapping(levelIndex - 1, state.dragSource.path, path);
   workspaceStore.update({ dragSource: null });
 }
 
-function removeMapping(dataset) {
-  const id = dataset.removeId;
-  const mapping = workspaceStore.removeMapping(id);
-  if (state.selectedMapping === id) workspaceStore.update({ selectedMapping: null });
+function removeMapping(linkIndex, id) {
+  const mapping = workspaceStore.removeMapping(linkIndex, id);
+  if (state.selectedMapping?.linkIndex === linkIndex && state.selectedMapping.id === id) {
+    workspaceStore.update({ selectedMapping: null });
+  }
   renderAll();
-  showToast(mapping
-    ? `Removed mapping for ${mappingSourcePaths(mapping).map((path) => path.split(".").pop()).join(", ")}.`
-    : "Mapping removed.");
+  showToast(mapping ? `Removed mapping for ${mapping.sourcePath.split(".").pop()}.` : "Mapping removed.");
 }
 
-function selectMapping(dataset) {
-  const id = dataset.mappingId;
-  workspaceStore.update({ selectedMapping: state.selectedMapping === id ? null : id });
-  renderMappings();
-  drawConnectors();
+function selectMapping(linkIndex, id) {
+  const isSame = state.selectedMapping?.linkIndex === linkIndex && state.selectedMapping.id === id;
+  workspaceStore.update({ selectedMapping: isSame ? null : { linkIndex, id } });
+  view.renderLinkMappings(linkIndex);
+  view.drawConnectors();
 }
 
-function clearMappings() {
-  if (!state.mappings.length) return;
-  workspaceStore.update({ mappings: [], selectedMapping: null, selectedSource: null });
+function selectChain(segments) {
+  const isSame = state.selectedChain?.length === segments.length &&
+    state.selectedChain.every((selected, index) => selected.linkIndex === segments[index].linkIndex && selected.id === segments[index].id);
+  workspaceStore.update({ selectedChain: isSame ? null : segments });
+  view.renderEndToEndMappings();
+  view.drawConnectors();
+}
+
+function clearMappings(linkIndex) {
+  const link = state.links[linkIndex];
+  if (!link.mappings.length) return;
+  workspaceStore.setLinkMappings(linkIndex, []);
+  workspaceStore.update({ selectedMapping: null, selectedField: null, selectedChain: null });
   renderAll();
-  showToast("All mappings cleared.");
+  showToast("Mappings cleared for this link.");
 }
 
-function importMappingsRequest() {
-  if (!state.source.fields.length || !state.target.fields.length) {
-    showToast("Import both source and target schemas before importing a mapping file.", true);
+function importMappingsRequest(linkIndex) {
+  const fromSchema = state.levels[linkIndex];
+  const toSchema = state.levels[linkIndex + 1];
+  if (!fromSchema.fields.length || !toSchema.fields.length) {
+    showToast("Import both schemas for this link before importing a mapping file.", true);
     return;
   }
-  view.requestMappingFile();
+  view.requestMappingFile(linkIndex);
 }
 
 function clearSelection() {
-  if (!state.selectedSource && !state.selectedMapping) return;
-  workspaceStore.update({ selectedSource: null, selectedMapping: null });
+  if (!state.selectedField && !state.selectedMapping && !state.selectedChain) return;
+  workspaceStore.update({ selectedField: null, selectedMapping: null, selectedChain: null });
   renderAll();
-  updateHint("Selection cleared");
 }
 
 view.bind({
@@ -516,16 +685,22 @@ view.bind({
   onDrop: handleDrop,
   onRemoveMapping: removeMapping,
   onSelectMapping: selectMapping,
+  onSelectChain: selectChain,
   onClearMappings: clearMappings,
   onOpenExport: openMappingExport,
-  onGetExportJson: getMappingExportJson,
+  onOpenExportAll: openExportAll,
+  onAllMappingsFile: importAllMappings,
   onLoadSample: loadSampleData,
+  onSelectSample: selectSample,
+  onClearAll: clearAll,
   onImportMappings: importMappingsRequest,
   onClearSchema: clearSchema,
-  onSourceSchemaFile: (text, name) => importSchemaFile(text, name, "source"),
-  onTargetSchemaFile: (text, name) => importSchemaFile(text, name, "target"),
-  onMappingFile: (text) => importMappingFile(text),
-  onClearSelection: clearSelection
+  onSchemaFile: (levelIndex, text, name, xmlDocument) => importSchemaFile(text, name, levelIndex, xmlDocument),
+  onMappingFile: (linkIndex, text) => importMappingFile(linkIndex, text),
+  onClearSelection: clearSelection,
+  onAddLevel: addLevel,
+  onInsertLevel: insertLevel,
+  onRemoveLevel: removeLevel
 });
 
 const restoreResult = workspaceStore.restore(state);

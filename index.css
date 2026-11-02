@@ -1,0 +1,25 @@
+/* Geometry exceptions preserve dynamic grid tracks/spans, the exact gutter, snap alignment, and max-content chain columns. */
+#levels-row {
+  grid-auto-rows: min-content;
+  gap: .75rem;
+  overflow-y: clip;
+  scroll-snap-type: x proximity;
+  min-height: 52vh;
+}
+#levels-row > [data-level-index] {
+  grid-row: 1;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+#levels-row > [data-link-index] {
+  grid-row: 3;
+  min-width: 0;
+  justify-self: center;
+}
+#levels-row > [data-link-index][data-align="start"] { justify-self: start; }
+#levels-row > [data-link-index][data-align="end"] { justify-self: end; }
+[data-mapping-row] { grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) auto; }
+#e2e-panel { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+#e2e-header,
+[data-e2e-grid] { width: max-content; }
+[data-e2e-cell] { min-width: 0; }

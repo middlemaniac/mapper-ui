@@ -56,11 +56,21 @@ MM Mapper is a lightweight browser-based field mapping tool for comparing a sour
 
 ## Typical workflow
 
+### Simple flow
+
 1. Import a source schema.
 2. Import a target schema.
 3. Select a source field and choose the matching target field.
-4. Review the mapping list in the center panel.
-5. Export the final mapping JSON when ready.
+4. Review the mappings in the mapping list.
+5. Export the mapping JSON when ready.
+
+### Mapping chain flow
+
+1. Import a source schema and the first target schema.
+2. Add target levels with **Add target level**, or insert a level between existing levels.
+3. For each adjacent pair of levels, select a field on the left and choose its matching field on the right. Continue mapping from each intermediate level to the next.
+4. Review each adjacent-level mapping in its mapping list, then review the stitched paths across all levels in the **Mapping chain** panel.
+5. Export the mapping JSON when ready.
 
 ## Browser considerations
 
